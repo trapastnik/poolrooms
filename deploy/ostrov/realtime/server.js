@@ -17,7 +17,7 @@ const { World, EYE } = require('./world/monsters');
 const { deserializeLevel } = require('./world/level');
 
 const PORT = Number(process.env.PORT || 8000);
-const MAX_PLAYERS = Number(process.env.MAX_PLAYERS || 6);
+const MAX_PLAYERS = Number(process.env.MAX_PLAYERS || 8);
 const TICK_MS = 66;          // ~15 рассылок в секунду, этого хватает с интерполяцией
 const STALE_MS = 12000;      // молчит дольше — считаем, что отвалился
 const NAME_MAX = 18;

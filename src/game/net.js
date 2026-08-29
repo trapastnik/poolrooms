@@ -20,7 +20,9 @@ const RETRY_MS = 4000;
  * собой. Вычисляемый оттенок по номеру давал соседние тона, которые в мутной
  * воде и полумраке сливались, — здесь такого не будет.
  */
-const PALETTE = ['#ff5a5a', '#ffb02e', '#ffe74c', '#5ce65c', '#4cc9ff', '#c77dff'];
+// Восемь заведомо различимых оттенков — по числу мест в комнате. Хью раскиданы
+// по кругу без соседних тонов, чтобы в мутной воде и полумраке цвета не сливались.
+const PALETTE = ['#ff5a5a', '#ffb02e', '#ffe74c', '#5ce65c', '#4cc9ff', '#c77dff', '#2ee6c0', '#ff5ecb'];
 const colorHex = (id) => PALETTE[(Math.max(1, id) - 1) % PALETTE.length];
 const colorFor = (id) => new THREE.Color(colorHex(id));
 
@@ -99,7 +101,7 @@ export class Net {
     this.enabled = false;
     this.status = 'выключена';
     this.selfId = 0;
-    this.max = 6;
+    this.max = 8;
     this.count = 0;
     this.ws = null;
     this.room = '';
