@@ -237,6 +237,7 @@ class Walker extends Creature {
     this.kind = 'walker';
     this.frozen = false;
     this.hp = 3;
+    this._driftT = 0; this._ax = 0; this._az = 0; this._stuckN = 0;
     this.spitTimer = 1.5 + Math.random() * 2;
     this._wanderTo();
   }
@@ -265,9 +266,17 @@ class Walker extends Creature {
     return false;
   }
   _wanderTo() {
-    const c = this._randomOpenCell();
+    // Берём цель, до которой есть прямая видимость: ходок идёт по прямой и
+    // обходить стены не умеет, поэтому недостижимая точка заставляла его
+    // топтаться на месте между двумя углами.
+    let c = null;
+    for (let n = 0; n < 20; n++) {
+      const cand = this._randomOpenCell();
+      if (cand && this._lineOfSight(cand)) { c = cand; break; }
+    }
+    if (!c) c = this._randomOpenCell();
     if (c) { this.target.x = c.x; this.target.y = 0; this.target.z = c.z; }
-    this.think = 6 + Math.random() * 6;
+    this.think = 4 + Math.random() * 5;
   }
   _lineOfSight(to) {
     const dx = to.x - this.pos.x, dz = to.z - this.pos.z;
@@ -320,6 +329,21 @@ class Walker extends Creature {
       this._turnTo(eye.x, eye.z, dt, 1.2);
     }
     this.pos.y = this.grid.floorAt(this.pos.x, this.pos.z);
+
+    // Анти-застревание по смещению за окно: если за 3 c ходок не ушёл дальше
+    // 2.5 м — он либо стоит, либо колеблется между двумя углами. Первый раз даём
+    // новую цель и резко доворачиваем; если и следующие 3 c на месте — переносим
+    // подальше. Под взглядом стоять положено — там не считаем.
+    this._driftT += dt;
+    if (this._driftT >= 3) {
+      const drift = Math.hypot(this.pos.x - this._ax, this.pos.z - this._az);
+      if (!this.frozen && !lureHere && drift < 2.5) {
+        this._stuckN++;
+        if (this._stuckN >= 2) { this.placeAwayFrom(view.pos.x, view.pos.z, 12); this._stuckN = 0; }
+        else { this._wanderTo(); this.yaw += (Math.random() - 0.5) * 3; }
+      } else this._stuckN = 0;
+      this._ax = this.pos.x; this._az = this.pos.z; this._driftT = 0;
+    }
 
     const playerAbove = (view.pos.y + view.eye) >= this.waterY;
     this.spitTimer -= dt;

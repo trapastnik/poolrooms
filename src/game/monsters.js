@@ -663,6 +663,7 @@ class Walker extends Creature {
     this.grid = grid; this.lv = level; this.waterY = waterY; this.cfg = cfg;
     this.frozen = false;
     this.hp = 3;
+    this._driftT = 0; this._ax = 0; this._az = 0; this._stuckN = 0;
     this.spitTimer = 1.5 + Math.random() * 2;
     this._wanderTo();
   }
@@ -695,9 +696,16 @@ class Walker extends Creature {
     return false;
   }
   _wanderTo() {
-    const c = this._randomOpenCell();
+    // Цель с прямой видимостью: ходок идёт по прямой и стены не обходит,
+    // недостижимая точка заставляла его топтаться между двумя углами.
+    let c = null;
+    for (let n = 0; n < 20; n++) {
+      const cand = this._randomOpenCell();
+      if (cand && this._lineOfSight(cand)) { c = cand; break; }
+    }
+    if (!c) c = this._randomOpenCell();
     if (c) this.target.set(c.x, 0, c.z);
-    this.think = 6 + Math.random() * 6;
+    this.think = 4 + Math.random() * 5;
   }
   /** Грубая видимость по клеткам: шагаем по прямой и смотрим, открыты ли они. */
   _lineOfSight(to) {
@@ -754,6 +762,20 @@ class Walker extends Creature {
       this._turnTo(camera.position.x, camera.position.z, dt, 1.2);
     }
     this.pos.y = this.grid.floorAt(this.pos.x, this.pos.z);
+
+    // Анти-застревание по смещению за окно: не ушёл дальше 2.5 м за 3 c — стоит
+    // или колеблется между углами. Сначала новая цель и резкий доворот, при
+    // повторе — перенос подальше. Под взглядом стоять положено.
+    this._driftT += dt;
+    if (this._driftT >= 3) {
+      const drift = Math.hypot(this.pos.x - this._ax, this.pos.z - this._az);
+      if (!this.frozen && !lureHere && drift < 2.5) {
+        this._stuckN++;
+        if (this._stuckN >= 2) { this.placeAwayFrom(camera.position.x, camera.position.z, 12); this._stuckN = 0; }
+        else { this._wanderTo(); this.yaw += (Math.random() - 0.5) * 3; }
+      } else this._stuckN = 0;
+      this._ax = this.pos.x; this._az = this.pos.z; this._driftT = 0;
+    }
 
     // Плевок — только если игрок дышит воздухом. Под водой плевать бесполезно,
     // и это единственная передышка от наземных. Условие ровно обратное укусу,
