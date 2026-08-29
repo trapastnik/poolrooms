@@ -7,6 +7,8 @@
     "ws": "^8.18.0"
   },
   "scripts": {
-    "test:geo": "node world/geo.test.mjs"
+    "test:geo": "node world/geo.test.mjs",
+    "test:ai": "node world/ai.test.mjs",
+    "test": "node world/geo.test.mjs && node world/ai.test.mjs"
   }
 }
