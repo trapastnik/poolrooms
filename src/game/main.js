@@ -6,6 +6,7 @@ import { TouchControls, coarsePointer } from './touch.js';
 import { Monsters, DIFFICULTY } from './monsters.js';
 import { Gyro } from './gyro.js';
 import { Net, colorHex } from './net.js';
+import { Birthday } from './birthday.js';
 import { playerName, playerPin, setPlayerName, setPlayerPin, pinValid,
          submit, fetchTable, renderTable, clearLocalTable,
          clearServerTable, hasAdminToken, ping, fetchStats, statsPin,
@@ -112,6 +113,7 @@ async function boot() {
   state.monsters.events.artifact = (n) => { state.runArtifacts++; state.audio.surface(); flashHint(`артефакт найден · зарядов ${n}`); };
   applyDifficulty();
   state.gyro = new Gyro();
+  state.birthday = new Birthday(engine);
   state.net = new Net(engine);
   // Общие монстры: снимок мира рисуем через Monsters, адресные события от
   // сервера применяем к своему игроку. Урон/воздух/толчок/артефакт — только нам.
@@ -468,6 +470,12 @@ function buildMenu() {
   });
   $('btnEditor').addEventListener('click', () => { window.location.href = 'editor.html'; });
   $('btnServer').addEventListener('click', () => { window.open('server.html', '_blank'); });
+  $('btnBirthday').addEventListener('click', () => {
+    const on = !state.birthday.active;
+    state.birthday.toggle(on, state);
+    $('btnBirthday').textContent = on ? '🎂 Праздник ✓' : '🎂 Праздник';
+    flashHint(on ? 'С днём рождения, Мирон! 🎂' : 'праздник выключен');
+  });
   $('btnMore').addEventListener('click', () => {
     $('menu').classList.add('hidden');
     $('more').classList.remove('hidden');
@@ -1083,6 +1091,7 @@ function loop(t) {
     state.player.update(dt);
     state.monsters.update(dt, state.player);
   }
+  state.birthday.update(dt, state);      // наряжает сцену, когда праздник включён
   e.update(dt);
 
   // плавное появление после загрузки
