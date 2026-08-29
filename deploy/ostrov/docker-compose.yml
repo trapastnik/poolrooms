@@ -1,0 +1,46 @@
+services:
+  web:
+    image: nginx:alpine
+    container_name: poolrooms-web
+    volumes:
+      - .:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    # Только для центрального прокси на хосте (он ходит на 172.17.0.1:8083).
+    # Наружу порт не открываем: прямой http://IP:8083 в обход HTTPS и прокси
+    # давал незашифрованный доступ и позволял подделать X-Forwarded-For.
+    ports:
+      - "172.17.0.1:8083:80"
+    depends_on:
+      - api
+      - realtime
+    restart: always
+
+  # Порт наружу намеренно не публикуется: до api достучится только web
+  # по внутренней сети compose, снаружи он недоступен.
+  api:
+    build: ./api
+    container_name: poolrooms-api
+    volumes:
+      - ./data:/data
+    environment:
+      # берётся из .env рядом с этим файлом; без него очистка таблицы запрещена
+      - ADMIN_TOKEN=${ADMIN_TOKEN:-}
+      # без него панель статистики закрыта (fail-safe). Раньше сюда не
+      # пробрасывался — и /api/stats висел на захардкоженном пароле мимо .env
+      - STATS_PIN=${STATS_PIN:-}
+      - TRUSTED_HOPS=${TRUSTED_HOPS:-2}
+    restart: always
+
+  # Ретранслятор сетевой игры. Наружу тоже не публикуется — только через nginx.
+  realtime:
+    build: ./realtime
+    container_name: poolrooms-realtime
+    environment:
+      - MAX_PLAYERS=6
+      - MAX_ROOMS=8
+      # 0 — процесс не гасим: без комнат он и так не тратит процессор, зато
+      # всегда готов принять игрока. Выключатель в панели гасит саму игру.
+      - IDLE_EXIT_MIN=0
+      - STATS_PIN=${STATS_PIN:-}
+      - TRUSTED_HOPS=${TRUSTED_HOPS:-2}
+    restart: unless-stopped

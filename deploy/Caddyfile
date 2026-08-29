@@ -1,0 +1,19 @@
+# POOLROOMS — статический хостинг на Caddy (рекомендуется: авто-HTTPS «из коробки»).
+#
+# 1) Впишите свой домен вместо poolrooms.example.com.
+#    A-запись домена должна указывать на IP вашего VPS.
+#    Нет домена? Замените первую строку на  :80  — откроется по IP, но без HTTPS.
+# 2) Файлы игры должны лежать в /var/www/poolrooms
+# 3) Установка Caddy: https://caddyserver.com/docs/install
+#    Затем: sudo cp deploy/Caddyfile /etc/caddy/Caddyfile && sudo systemctl reload caddy
+
+poolrooms.example.com {
+    root * /var/www/poolrooms
+    encode zstd gzip
+    file_server
+
+    # игра самодостаточна (three.js и всё остальное вшито в html),
+    # но html обновляется — держим короткий кэш, чтобы правки долетали
+    @html path *.html
+    header @html Cache-Control "public, max-age=300"
+}

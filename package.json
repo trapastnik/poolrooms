@@ -1,0 +1,17 @@
+{
+  "name": "poolrooms",
+  "version": "1.0.0",
+  "description": "POOLROOMS — лиминальные пространства: игра на three.js с кастомной водой, каустиками и объёмным светом, плюс редактор уровней.",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "dev": "node build.mjs --dev"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "three": "^0.169.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.21.5"
+  }
+}

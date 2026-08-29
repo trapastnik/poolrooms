@@ -1,0 +1,90 @@
+export const QUALITY_PRESETS = {
+  low: {
+    name: 'Низкое',
+    renderScale: 0.65,
+    shadowMapSize: 1024,
+    reflectionScale: 0,          // отражения выключены — вместо них небо
+    refractionScale: 0.45,
+    reflectInterval: 3,
+    refractInterval: 2,
+    causticSize: 256,
+    volumetric: false,
+    volumetricSteps: 0,
+    volumetricScale: 0.5,
+    bloomMips: 3,
+    fxaa: true,
+    anisotropy: 4,
+    waterSubdiv: 1,
+    softShadows: false,
+    shadowUpdateDist: 6,
+    tileDetail: 0,               // без подтёков и налёта
+    clearcoat: 0
+  },
+  medium: {
+    name: 'Среднее',
+    renderScale: 0.85,
+    shadowMapSize: 2048,
+    reflectionScale: 0.40,
+    refractionScale: 0.60,
+    reflectInterval: 2,
+    refractInterval: 2,
+    causticSize: 384,
+    volumetric: true,
+    volumetricSteps: 20,
+    volumetricScale: 0.5,
+    bloomMips: 5,
+    fxaa: true,
+    anisotropy: 8,
+    waterSubdiv: 1,
+    softShadows: true,
+    shadowUpdateDist: 4,
+    tileDetail: 1,
+    clearcoat: 0.2
+  },
+  high: {
+    name: 'Высокое',
+    renderScale: 1.0,
+    shadowMapSize: 3072,
+    reflectionScale: 0.55,
+    refractionScale: 0.80,
+    reflectInterval: 2,
+    refractInterval: 2,
+    causticSize: 512,
+    volumetric: true,
+    volumetricSteps: 36,
+    volumetricScale: 0.5,
+    bloomMips: 6,
+    fxaa: true,
+    anisotropy: 16,
+    waterSubdiv: 2,
+    softShadows: true,
+    shadowUpdateDist: 3,
+    tileDetail: 1,
+    clearcoat: 0.35
+  },
+  ultra: {
+    name: 'Ультра',
+    renderScale: 1.0,
+    shadowMapSize: 4096,
+    reflectionScale: 0.9,
+    refractionScale: 1.0,
+    reflectInterval: 1,
+    refractInterval: 1,
+    causticSize: 768,
+    volumetric: true,
+    volumetricSteps: 64,
+    volumetricScale: 1.0,
+    bloomMips: 6,
+    fxaa: true,
+    anisotropy: 16,
+    waterSubdiv: 3,
+    softShadows: true,
+    shadowUpdateDist: 2,
+    tileDetail: 1,
+    clearcoat: 0.4
+  }
+};
+
+export function getQuality(key) {
+  return QUALITY_PRESETS[key] || QUALITY_PRESETS.high;
+}

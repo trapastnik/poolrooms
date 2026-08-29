@@ -1,0 +1,14 @@
+# зависимости — ставятся npm install
+node_modules/
+
+# собранные файлы: воспроизводятся из src через npm run build,
+# при каждой сборке меняются целиком и зря раздували бы историю
+game.html
+editor.html
+server.html
+
+# музыка: 3.6 МБ, в репозитории не нужна — нужна только на сервере
+assets/
+
+.DS_Store
+.claude/settings.local.json
