@@ -61,13 +61,21 @@ function makeCake() {
 // ---- надпись на «плакате» ----
 function makeSign() {
   const c = document.createElement('canvas');
-  c.width = 1024; c.height = 256;
+  c.width = 1280; c.height = 256;
   const g = c.getContext('2d');
   g.fillStyle = 'rgba(10,6,20,0.82)';
   roundRect(g, 8, 8, c.width - 16, c.height - 16, 28); g.fill();
   g.lineWidth = 8; g.strokeStyle = '#ff4fa3';
   roundRect(g, 8, 8, c.width - 16, c.height - 16, 28); g.stroke();
-  g.font = '700 92px Inter, "Segoe UI", system-ui, sans-serif';
+  // Подбираем размер шрифта, чтобы вся надпись влезла с полями, — иначе длинный
+  // текст обрезался краями холста.
+  const maxW = c.width - 120;
+  let size = 108;
+  do {
+    g.font = `700 ${size}px Inter, "Segoe UI", system-ui, sans-serif`;
+    if (g.measureText(SIGN_TEXT).width <= maxW) break;
+    size -= 4;
+  } while (size > 40);
   g.textAlign = 'center'; g.textBaseline = 'middle';
   const grad = g.createLinearGradient(0, 0, c.width, 0);
   grad.addColorStop(0, '#ffe74c'); grad.addColorStop(0.5, '#4cc9ff'); grad.addColorStop(1, '#ff8fc7');
@@ -76,7 +84,7 @@ function makeSign() {
   const tex = new THREE.CanvasTexture(c);
   tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter;
   const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false }));
-  spr.scale.set(4.2, 1.05, 1);
+  spr.scale.set(5.25, 1.05, 1);      // держим пропорцию холста 1280×256 (5:1)
   spr.renderOrder = 25;
   return spr;
 }
@@ -127,15 +135,33 @@ export class Birthday {
     this._stopMusic();
   }
 
-  /** Плакаты кольцом вокруг точки входа — на уровне глаз, лицом к центру. */
-  _placeSigns(state) {
+  /** Плакаты по всем залам уровня, вразброс. Спрайт сам смотрит на игрока,
+   *  поэтому надпись читается из любого зала. */
+  _placeSigns() {
     clearGroup(this.signs);
-    const sp = this.engine.level?.spawn || { x: 0, z: 0 };
-    const N = 6, R = 9;
-    for (let i = 0; i < N; i++) {
-      const a = i / N * Math.PI * 2;
+    const lv = this.engine.level, grid = this.engine.grid;
+    if (!lv || !grid) return;
+
+    const cells = [];
+    for (let j = 1; j < lv.h - 1; j++) {
+      for (let i = 1; i < lv.w - 1; i++) {
+        if (grid.isOpen(i, j)) cells.push({ x: (i + 0.5) * grid.cs, z: (j + 0.5) * grid.cs });
+      }
+    }
+    // перемешиваем и берём точки не ближе minDist друг к другу — чтобы плакаты
+    // не толпились, а расходились по всей карте.
+    for (let k = cells.length - 1; k > 0; k--) { const r = (Math.random() * (k + 1)) | 0; [cells[k], cells[r]] = [cells[r], cells[k]]; }
+    const minDist = 9, picked = [];
+    for (const c of cells) {
+      if (picked.length >= 18) break;
+      if (picked.some(p => Math.hypot(p.x - c.x, p.z - c.z) < minDist)) continue;
+      picked.push(c);
+    }
+    for (const c of picked) {
       const s = makeSign();
-      s.position.set(sp.x + Math.cos(a) * R, 2.6, sp.z + Math.sin(a) * R);
+      const y = Math.min(2.6, Math.max(1.8, grid.ceilAt(c.x, c.z) - 0.6));   // не втыкаем в потолок
+      s.position.set(c.x, y, c.z);
+      s.userData.baseY = y;
       this.signs.add(s);
     }
   }
@@ -181,9 +207,10 @@ export class Birthday {
       } else cake.visible = false;
     }
 
-    // плакаты слегка покачиваются
+    // плакаты слегка покачиваются вокруг своей высоты
     for (let i = 0; i < this.signs.children.length; i++) {
-      this.signs.children[i].position.y = 2.6 + Math.sin(this._t * 1.5 + i) * 0.12;
+      const s = this.signs.children[i];
+      s.position.y = (s.userData.baseY || 2.6) + Math.sin(this._t * 1.5 + i) * 0.12;
     }
   }
 
