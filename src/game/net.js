@@ -117,7 +117,7 @@ export class Net {
     this.events = {
       joined: null, left: null, full: null, lobby: null,
       // общие монстры: снимок мира и адресные события от сервера
-      world: null, hurt: null, oxy: null, knock: null, artifactPick: null,
+      world: null, hurt: null, oxy: null, heal: null, knock: null, artifactPick: null,
       growl: null, annihilate: null
     };
   }
@@ -214,6 +214,8 @@ export class Net {
         this.events.hurt?.(m.dmg);
       } else if (m.t === 'oxy') {
         this.events.oxy?.(m.d);
+      } else if (m.t === 'heal') {
+        this.events.heal?.(m.hp, m.air);
       } else if (m.t === 'knock') {
         this.events.knock?.(m.v);
       } else if (m.t === 'artifact') {

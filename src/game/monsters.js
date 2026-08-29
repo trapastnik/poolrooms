@@ -1068,6 +1068,14 @@ export class Monsters {
     this.spits.items = (snap.sp || []).map(p => ({ p: new THREE.Vector3(p[0], p[1], p[2]) }));
     this.spits._sync();
 
+    // подбираемое: позиции от сервера. Фазу боба берём от координат, чтобы
+    // покачивание было стабильным между снимками, а не прыгало случайно.
+    for (const kind of ['plant', 'roe', 'snake']) {
+      const arr = (snap.pk && snap.pk[kind]) || [];
+      this.pickups[kind].items = arr.map(p =>
+        ({ p: new THREE.Vector3(p[0], p[1], p[2]), phase: (p[0] * 13.7 + p[2] * 57.3) % 6.28 }));
+    }
+
     if (snap.lu) {
       this.lure.active = true; this.lure.pos.set(snap.lu[0], snap.lu[1], snap.lu[2]);
       this.lure.mesh.visible = true; this.lure.mesh.position.copy(this.lure.pos);
@@ -1109,6 +1117,7 @@ export class Monsters {
         this.artifact.mat.emissiveIntensity = 5 + Math.sin(t * 3.1) * 2;
       }
       if (this.lure.active) this.lure.mat.emissiveIntensity = 1.4 + Math.sin(this._lastSnap * 0.009) * 0.9;
+      for (const kind of ['plant', 'roe', 'snake']) this.pickups[kind].update(t);   // качание/вращение
       return;
     }
 

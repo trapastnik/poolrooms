@@ -356,6 +356,7 @@ function tickWorld(room, all) {
   const ownerOf = (view) => pairs.find(v => v.view === view);
   for (const h of out.hurt) { const o = ownerOf(h.view); if (o) send(o.p.ws, { t: 'hurt', dmg: r2(h.dmg) }); }
   for (const o2 of out.oxy) { const o = ownerOf(o2.view); if (o) send(o.p.ws, { t: 'oxy', d: r2(o2.d) }); }
+  for (const h of out.heal) { const o = ownerOf(h.view); if (o) send(o.p.ws, { t: 'heal', hp: r2(h.hp), air: r2(h.air) }); }
   for (const k of out.knock) { const o = ownerOf(k.view); if (o) send(o.p.ws, { t: 'knock', v: [r2(k.ix), r2(k.iy), r2(k.iz)] }); }
   if (out.artifact) { const o = ownerOf(out.artifact); if (o) send(o.p.ws, { t: 'artifact' }); }
   if (out.growl != null) for (const p of all) send(p.ws, { t: 'growl', p: r2(out.growl) });

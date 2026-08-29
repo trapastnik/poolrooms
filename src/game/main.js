@@ -118,6 +118,11 @@ async function boot() {
   state.net.events.world = (snap) => state.monsters.applyWorld(snap);
   state.net.events.hurt = (dmg) => state.player.hurt(dmg);
   state.net.events.oxy = (d) => { state.player.oxygen = Math.max(0, Math.min(1, state.player.oxygen + d)); };
+  state.net.events.heal = (hp, air) => {
+    state.player.heal(hp);
+    if (air) state.player.oxygen = Math.min(1, state.player.oxygen + air);
+    state.audio.drip();
+  };
   state.net.events.knock = (v) => { state.player.vel.x += v[0]; state.player.vel.y += v[1]; state.player.vel.z += v[2]; };
   state.net.events.artifactPick = () => {
     state.monsters.charges++; state.runArtifacts++; state.audio.surface();

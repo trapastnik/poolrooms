@@ -133,5 +133,30 @@ for (const [name, mk] of [['demoLevel', CLIENT.demoLevel], ['demoLevelDeep', CLI
   else console.log(`[респавн] после гибели всех поголовье вернулось к ${world.list.length} (было ${want}) ✓`);
 }
 
+// --- подбираемое: посадка растений, выпадение из убитых, подбор → лечение ---
+{
+  const lv = SRV.deserializeLevel(CLIENT.serializeLevel(CLIENT.demoLevelDeep()));
+  const world = new World(lv, 'normal');
+  if (world.pickups.plant.length < 5) fail(`растения: посажено ${world.pickups.plant.length}, ожидалось ≥5`);
+  else console.log(`\n[растения] на дне посажено ${world.pickups.plant.length} ✓`);
+
+  // выпадение из убитого сталкера → икра (roe)
+  const st = world.list.find(c => c.kind === 'stalker');
+  const roeBefore = world.pickups.roe.length;
+  world._kill(st);
+  if (world.pickups.roe.length !== roeBefore + 3) fail(`выпадение: roe ${roeBefore}→${world.pickups.roe.length}, ожидалось +3`);
+  else console.log('[выпадение] из убитого сталкера выпало 3 икры ✓');
+
+  // подбор растения игроком → событие heal с лечением
+  const pl = world.pickups.plant[0];
+  const view = { pos: { x: pl.x, y: pl.y - EYE * 0.5, z: pl.z }, eye: EYE, yaw: 0, vel: { x: 0, y: 0, z: 0 }, mode: 'swim' };
+  const plBefore = world.pickups.plant.length;
+  const out = world.step(1 / 15, [view]);
+  const healed = out.heal.find(h => h.view === view && h.hp > 0);
+  if (!healed) fail('подбор: растение не дало лечения');
+  else if (world.pickups.plant.length >= plBefore) fail('подбор: растение не убралось');
+  else console.log(`[подбор] игрок собрал растение → +${healed.hp.toFixed(2)} здоровья, +${healed.air.toFixed(2)} воздуха ✓`);
+}
+
 console.log(`\n${fails === 0 ? '✓ все инварианты держатся' : '✗ провалов: ' + fails}`);
 process.exit(fails === 0 ? 0 : 1);

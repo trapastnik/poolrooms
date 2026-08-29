@@ -25,6 +25,15 @@ const WADE_MAX = 1.1;             // глубже наземный не захо
 const ANNIHILATE_DIST = 2.6;     // ближе — наземный и подводный гасят друг друга
 const SPIT_MAX = 24;
 
+// Подбираемое: лечение и воздух. Значения один-в-один с клиентским PICKUP.
+// r — радиус подбора. Цвет/меш — забота клиента, серверу не нужны.
+const PICKUP = {
+  plant: { heal: 0.20, air: 0.40, r: 1.1 },
+  roe: { heal: 0.30, air: 0.18, r: 1.1 },
+  snake: { heal: 0.18, air: 0.00, r: 1.1 }
+};
+const PICKUP_MAX = 48;
+
 const DIFFICULTY = {
   calm: {
     name: 'Спокойно', air: 12, drown: 0.06, spitEvery: 5.0, spitDamage: 0.06, bite: 0.10,
@@ -465,12 +474,21 @@ class World {
     this._nextId = 1;                 // стабильный id монстра — чтобы клиент
                                       // сопоставлял снимки и плавно двигал меши
 
+    // Подбираемое: растения на дне и выпавшее из убитых. Как у клиента.
+    this.pickups = { plant: [], roe: [], snake: [] };
+    this._plantTarget = 0;
+    this._plantTimer = this.cfg.plantRegrow;
+
     this.deep = collectDeepCells(level, this.grid, this.waterY);
     if (this.deep.length < 4) this.deep = null;
 
     this.artifact.place(this.grid, level, level.spawn.x, level.spawn.z, 24);
     for (let n = 0; n < this.cfg.walkers; n++) this._spawnWalker(level.spawn.x, level.spawn.z, 18);
-    if (this.deep) for (let n = 0; n < this.cfg.stalkers; n++) this._spawnStalker();
+    if (this.deep) {
+      for (let n = 0; n < this.cfg.stalkers; n++) this._spawnStalker();
+      this._plantTarget = Math.min(14, Math.max(5, (this.deep.length / 9) | 0));
+      for (let k = 0; k < this._plantTarget; k++) this._growPlant();
+    }
   }
 
   _spawnWalker(awayX, awayZ, minDist) {
@@ -498,11 +516,61 @@ class World {
     return best;
   }
 
+  _addPickup(kind, x, y, z) {
+    const arr = this.pickups[kind];
+    if (arr.length < PICKUP_MAX) arr.push({ x, y, z });
+  }
+
+  /** Растение на дно чаши в случайном месте — ради него и стоит нырять. */
+  _growPlant() {
+    if (!this.deep) return;
+    const cs = this.grid.cs;
+    const c = this.deep[(Math.random() * this.deep.length) | 0];
+    this._addPickup('plant',
+      c.x + (Math.random() - 0.5) * cs * 0.7,
+      this.waterY - c.depth + 0.02,
+      c.z + (Math.random() - 0.5) * cs * 0.7);
+  }
+
+  _plantTick(dt) {
+    if (!this.deep || !this._plantTarget) return;
+    if (this.pickups.plant.length >= this._plantTarget) { this._plantTimer = this.cfg.plantRegrow; return; }
+    this._plantTimer -= dt;
+    if (this._plantTimer > 0) return;
+    this._plantTimer = this.cfg.plantRegrow;
+    this._growPlant();
+  }
+
+  /** Подбор игроком: собираем близкое, отдаём суммарный эффект тому, кто собрал. */
+  _collectPickups(views, hooks) {
+    for (const kind of ['plant', 'roe', 'snake']) {
+      const arr = this.pickups[kind], c = PICKUP[kind];
+      for (const view of views) {
+        let n = 0;
+        for (let i = arr.length - 1; i >= 0; i--) {
+          const it = arr[i];
+          const dx = it.x - view.pos.x, dz = it.z - view.pos.z;
+          const dy = it.y - (view.pos.y + view.eye * 0.5);
+          if (dx * dx + dz * dz > c.r * c.r || Math.abs(dy) > 1.5) continue;
+          arr.splice(i, 1); n++;
+        }
+        if (n) hooks.heal(view, c.heal * n, c.air * n);
+      }
+    }
+  }
+
   _kill(c) {
     if (c.dead) return;
     c.dead = true;
     this.kills++;
-    // TODO(шаг «подборы»): высыпать roe/snake (лечение/воздух) — пока опущено.
+    // Высыпаем добычу: из подводного — икра (roe), из наземного — змейки (snake).
+    const kind = c.kind === 'stalker' ? 'roe' : 'snake';
+    for (let k = 0; k < 3; k++) {
+      this._addPickup(kind,
+        c.pos.x + (Math.random() - 0.5) * 1.2,
+        c.pos.y + (c.kind === 'stalker' ? (Math.random() - 0.5) * 0.5 : 0.15),
+        c.pos.z + (Math.random() - 0.5) * 1.2);
+    }
   }
 
   _checkAnnihilation(hooks) {
@@ -552,10 +620,11 @@ class World {
    * рассылает вызывающий (server.js).
    */
   step(dt, views) {
-    const out = { hurt: [], knock: [], oxy: [], growl: null, artifact: null, annihilate: [] };
+    const out = { hurt: [], knock: [], oxy: [], heal: [], growl: null, artifact: null, annihilate: [] };
     const hooks = {
       hurt: (view, dmg) => out.hurt.push({ view, dmg }),
       oxy: (view, d) => out.oxy.push({ view, d }),
+      heal: (view, hp, air) => out.heal.push({ view, hp, air }),
       knock: (view, ix, iy, iz) => out.knock.push({ view, ix, iy, iz }),
       growl: (p) => { if (this._growlCool <= 0) { this._growlCool = 1.4 + Math.random(); out.growl = Math.max(out.growl || 0, p); } },
       annihilate: (p) => out.annihilate.push({ x: p.x, y: p.y, z: p.z })
@@ -586,6 +655,8 @@ class World {
       }
     }
 
+    if (views.length) this._collectPickups(views, hooks);
+    this._plantTick(dt);
     this._checkThrownHits(hooks);
     this._checkAnnihilation(hooks);
     this._respawnTick(dt, views);
@@ -612,7 +683,12 @@ class World {
       })),
       sp: this.spits.items.map(s => [r2(s.p.x), r2(s.p.y), r2(s.p.z)]),
       lu: this.lure.active ? [r2(this.lure.pos.x), r2(this.lure.pos.y), r2(this.lure.pos.z)] : null,
-      ar: this.artifact.active ? [r2(this.artifact.pos.x), r2(this.artifact.pos.y), r2(this.artifact.pos.z)] : null
+      ar: this.artifact.active ? [r2(this.artifact.pos.x), r2(this.artifact.pos.y), r2(this.artifact.pos.z)] : null,
+      pk: {
+        plant: this.pickups.plant.map(i => [r2(i.x), r2(i.y), r2(i.z)]),
+        roe: this.pickups.roe.map(i => [r2(i.x), r2(i.y), r2(i.z)]),
+        snake: this.pickups.snake.map(i => [r2(i.x), r2(i.y), r2(i.z)])
+      }
     };
   }
 }
