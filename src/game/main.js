@@ -456,6 +456,8 @@ function buildMenu() {
   $('identGo').addEventListener('click', identSubmit);
   $('tabKnown').addEventListener('click', () => setIdentTab('known'));
   $('tabNew').addEventListener('click', () => setIdentTab('new'));
+  $('tabPlayers').addEventListener('click', () => setRosterTab('players'));
+  $('tabScores').addEventListener('click', () => setRosterTab('scores'));
   $('identPin').addEventListener('keydown', (e) => { if (e.key === 'Enter') identSubmit(); });
   $('identPin').addEventListener('input', () => {
     $('identPin').value = $('identPin').value.replace(/\D/g, '').slice(0, 4);
@@ -668,6 +670,28 @@ function openMenu() {
   $('ident').classList.add('hidden');
   $('more').classList.add('hidden');
   $('menu').classList.remove('hidden');
+  setRosterTab('players');
+  refreshPlayersRoster();
+}
+
+/** Правая колонка меню: вкладка «Игроки» или «Лучшие забеги». */
+function setRosterTab(t) {
+  $('tabPlayers').classList.toggle('on', t === 'players');
+  $('tabScores').classList.toggle('on', t === 'scores');
+  $('panePlayers').classList.toggle('hidden', t !== 'players');
+  $('paneScores').classList.toggle('hidden', t !== 'scores');
+  if (t === 'scores') refreshScoreTable();
+}
+
+/** Зарегистрированные имена — карточками, как список на экране входа. */
+async function refreshPlayersRoster() {
+  const box = $('playersGrid');
+  if (!box) return;
+  box.innerHTML = '<div class="empty">загрузка…</div>';
+  const names = await fetchPlayers();
+  box.innerHTML = names.length
+    ? names.map(n => `<div class="pchip">${escapeName(n)}</div>`).join('')
+    : '<div class="empty">пока никто не зарегистрирован</div>';
 }
 
 /**

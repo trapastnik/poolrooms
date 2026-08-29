@@ -210,6 +210,11 @@
     background:rgba(255,255,255,.07);transform:none}
   .tab.on,.tab.on:hover{border-color:var(--acc);background:rgba(111,227,232,.24);
     color:var(--fg);font-weight:600}
+  /* список игроков в меню — карточки в два столбца, как на телефоне */
+  #playersGrid{display:flex;flex-wrap:wrap;gap:8px}
+  #playersGrid .pchip{flex:1 1 calc(50% - 4px);min-width:0;padding:11px 12px;border-radius:9px;
+    border:1px solid var(--line);background:rgba(111,227,232,.06);color:var(--fg);font-size:13px;
+    text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   /* лобби: кто уже пришёл */
   #lobbyList{display:flex;flex-direction:column;gap:7px;margin:6px 0 14px}
   .lp{display:flex;align-items:center;gap:10px;padding:9px 14px;border-radius:10px;
@@ -467,9 +472,15 @@
         <input type="file" id="fileInput" accept=".json,application/json" style="display:none">
       </div>
       <div class="col">
-        <h2>Лучшие забеги</h2>
-        <div id="scoreTable"></div>
-        <div class="btnrow"><button id="btnClearScores">Очистить таблицу (владелец)</button></div>
+        <div class="tabs" id="rosterTabs">
+          <button class="tab on" id="tabPlayers">Игроки</button>
+          <button class="tab" id="tabScores">Лучшие забеги</button>
+        </div>
+        <div id="panePlayers"><div id="playersGrid"></div></div>
+        <div id="paneScores" class="hidden">
+          <div id="scoreTable"></div>
+          <div class="btnrow"><button id="btnClearScores">Очистить таблицу (владелец)</button></div>
+        </div>
       </div>
     </div>
 
