@@ -9,6 +9,7 @@
   "scripts": {
     "test:geo": "node world/geo.test.mjs",
     "test:ai": "node world/ai.test.mjs",
-    "test": "node world/geo.test.mjs && node world/ai.test.mjs"
+    "test": "node world/geo.test.mjs && node world/ai.test.mjs",
+    "test:integ": "node world/integ.test.mjs"
   }
 }

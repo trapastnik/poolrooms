@@ -13,6 +13,8 @@
 'use strict';
 const http = require('http');
 const { WebSocketServer } = require('ws');
+const { World, EYE } = require('./world/monsters');
+const { deserializeLevel } = require('./world/level');
 
 const PORT = Number(process.env.PORT || 8000);
 const MAX_PLAYERS = Number(process.env.MAX_PLAYERS || 6);
@@ -83,7 +85,9 @@ function num(v, lo, hi) {
 function roomOf(name) {
   if (!rooms.has(name)) {
     if (rooms.size >= MAX_ROOMS) return null;
-    rooms.set(name, { players: new Map(), host: 0, started: false });
+    // world/level появляются, когда первый клиент пришлёт уровень (общие
+    // монстры). Пока их нет — комната работает по-старому: монстры у каждого свои.
+    rooms.set(name, { players: new Map(), host: 0, started: false, world: null, level: null });
   }
   return rooms.get(name);
 }
@@ -164,7 +168,9 @@ const server = http.createServer((req, res) => {
   res.end();
 });
 
-const wss = new WebSocketServer({ server, maxPayload: 4096 });
+// 256 КБ: игровые пакеты крохотные, но уровень целиком (для общих монстров)
+// приходит одним сообщением и у больших карт из редактора не влезал в 4 КБ.
+const wss = new WebSocketServer({ server, maxPayload: 262144 });
 
 wss.on('connection', (ws) => {
   ws.isAlive = true;
@@ -200,6 +206,7 @@ wss.on('connection', (ws) => {
         name: clean(msg.name, NAME_MAX) || 'без имени',
         room: roomName,
         pos: [0, 0, 0], yaw: 0, pitch: 0, mode: 'ground', health: 1,
+        prevPos: null,                 // для оценки скорости игрока (нужна ИИ)
         seen: Date.now(), ws
       };
       ws.player = p;
@@ -224,6 +231,33 @@ wss.on('connection', (ws) => {
       if (ws.player.id !== room.host || room.started) return;
       room.started = true;
       broadcastLobby(room);
+      return;
+    }
+
+    // Первый присланный уровень задаёт мир комнаты — с него начинаются общие
+    // монстры. Дальше уровень не переигрываем: у всех в комнате он один.
+    if (msg.t === 'level') {
+      if (!room.world && typeof msg.level === 'string') {
+        try {
+          const lv = deserializeLevel(msg.level);
+          if (lv) {
+            room.world = new World(lv, typeof msg.diff === 'string' ? msg.diff : 'normal');
+            room.level = msg.level;
+            ensureTick();
+            console.log(`комната «${ws.player.room}»: общий мир построен (${room.world.list.length} монстров)`);
+          }
+        } catch (_) { /* кривой уровень — молча игнорируем, комната живёт без мира */ }
+      }
+      return;
+    }
+
+    // Бросок приманки: клиент шлёт точку глаз и направление взгляда.
+    if (msg.t === 'lure') {
+      if (room.world && Array.isArray(msg.p) && Array.isArray(msg.d)) {
+        room.world.throwLure(
+          { x: num(msg.p[0], -1e4, 1e4), y: num(msg.p[1], -1e4, 1e4), z: num(msg.p[2], -1e4, 1e4) },
+          { x: num(msg.d[0], -1, 1), y: num(msg.d[1], -1, 1), z: num(msg.d[2], -1, 1) });
+      }
       return;
     }
 
@@ -290,8 +324,42 @@ function tick() {
     for (const p of all) {
       send(p.ws, { t: 'w', players: all.filter(o => o.id !== p.id).map(publicState) });
     }
+    if (room.world) tickWorld(room, all);
   }
   stopTickIfEmpty();
+}
+
+const r2 = (v) => Math.round(v * 100) / 100;
+
+/** Один игрок глазами ИИ: позиция, скорость (по разнице кадров), взгляд. */
+function viewOf(p, dt) {
+  const pos = { x: p.pos[0], y: p.pos[1], z: p.pos[2] };
+  const prev = p.prevPos || pos;
+  const vel = { x: (pos.x - prev.x) / dt, y: (pos.y - prev.y) / dt, z: (pos.z - prev.z) / dt };
+  p.prevPos = pos;
+  return { pos, eye: EYE, yaw: p.yaw || 0, pitch: p.pitch || 0, vel, mode: p.mode || 'ground' };
+}
+
+/**
+ * Тик общего мира комнаты: посчитать монстров, разослать снимок всем, а
+ * персональные воздействия (урон, толчок, потеря воздуха, подобранный
+ * артефакт) — адресно тому, кого они касаются. Рык и вспышку сведения слышат
+ * все. Старый клиент незнакомые типы просто игнорирует.
+ */
+function tickWorld(room, all) {
+  const dt = TICK_MS / 1000;
+  const pairs = all.map(p => ({ p, view: viewOf(p, dt) }));
+  const out = room.world.step(dt, pairs.map(v => v.view));
+  const snap = room.world.snapshot();
+  for (const p of all) send(p.ws, { t: 'world', ...snap });
+
+  const ownerOf = (view) => pairs.find(v => v.view === view);
+  for (const h of out.hurt) { const o = ownerOf(h.view); if (o) send(o.p.ws, { t: 'hurt', dmg: r2(h.dmg) }); }
+  for (const o2 of out.oxy) { const o = ownerOf(o2.view); if (o) send(o.p.ws, { t: 'oxy', d: r2(o2.d) }); }
+  for (const k of out.knock) { const o = ownerOf(k.view); if (o) send(o.p.ws, { t: 'knock', v: [r2(k.ix), r2(k.iy), r2(k.iz)] }); }
+  if (out.artifact) { const o = ownerOf(out.artifact); if (o) send(o.p.ws, { t: 'artifact' }); }
+  if (out.growl != null) for (const p of all) send(p.ws, { t: 'growl', p: r2(out.growl) });
+  for (const a of out.annihilate) for (const p of all) send(p.ws, { t: 'annihilate', p: [r2(a.x), r2(a.y), r2(a.z)] });
 }
 
 // пинг: без него мёртвые сокеты висят в комнате и занимают место
