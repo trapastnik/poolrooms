@@ -169,16 +169,19 @@ class LevelGrid {
   }
 }
 
-/** «Глубокие» клетки — где вода глубже порога; там держатся сталкеры. */
-function deepCells(level, grid, minDepth = 0.9) {
-  const out = [];
-  const cs = level.cell;
+/**
+ * «Чаша» — проходимые клетки, залитые глубже minDepth. Точный порт клиентского
+ * collectDeepCells: те же isOpen, тот же порог 1.4 и то же поле depth, иначе
+ * сталкеры на сервере держались бы не той воды, что видит игрок.
+ */
+function collectDeepCells(level, grid, waterY, minDepth = 1.4) {
+  const out = [], cs = grid.cs;
   for (let j = 0; j < level.h; j++) {
     for (let i = 0; i < level.w; i++) {
-      const k = j * level.w + i;
-      if (level.t[k] !== CELL.ROOM) continue;
+      if (!grid.isOpen(i, j)) continue;
       const x = (i + 0.5) * cs, z = (j + 0.5) * cs;
-      if (level.waterY - level.f[k] >= minDepth) out.push({ x, z });
+      const depth = waterY - grid.floorAt(x, z);
+      if (depth > minDepth) out.push({ x, z, depth });
     }
   }
   return out;
@@ -187,5 +190,5 @@ function deepCells(level, grid, minDepth = 0.9) {
 module.exports = {
   CELL, FEAT, LEVEL_VERSION,
   idx, inside, isRoom, createLevel, deserializeLevel,
-  LevelGrid, deepCells
+  LevelGrid, collectDeepCells
 };
