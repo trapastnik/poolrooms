@@ -790,6 +790,21 @@ const WADE_MAX = 1.1;
 // общих монстров было плавным, — как и для чужих игроков в net.js.
 const NET_INTERP_MS = 120;
 
+/**
+ * Влить позиции из снимка в пул предметов, НЕ создавая мусора: Vector3
+ * переиспользуем, длину подгоняем. На 15 снимках в секунду это снимает
+ * сотни аллокаций и связанные с ними подёргивания сборщика на телефоне.
+ */
+function syncPool(items, arr, withPhase) {
+  while (items.length < arr.length) items.push({ p: new THREE.Vector3(), phase: 0 });
+  items.length = arr.length;
+  for (let i = 0; i < arr.length; i++) {
+    const p = arr[i];
+    items[i].p.set(p[0], p[1], p[2]);
+    if (withPhase) items[i].phase = (p[0] * 13.7 + p[2] * 57.3) % 6.28;
+  }
+}
+
 export class Monsters {
   constructor(engine) {
     this.engine = engine;
@@ -1065,15 +1080,13 @@ export class Monsters {
     for (const [id, s] of this.server) if (!seen.has(id)) this._dropServerMesh(id, s);
 
     // снаряды: держим только позиции, физику считает сервер
-    this.spits.items = (snap.sp || []).map(p => ({ p: new THREE.Vector3(p[0], p[1], p[2]) }));
+    syncPool(this.spits.items, snap.sp || [], false);
     this.spits._sync();
 
     // подбираемое: позиции от сервера. Фазу боба берём от координат, чтобы
     // покачивание было стабильным между снимками, а не прыгало случайно.
     for (const kind of ['plant', 'roe', 'snake']) {
-      const arr = (snap.pk && snap.pk[kind]) || [];
-      this.pickups[kind].items = arr.map(p =>
-        ({ p: new THREE.Vector3(p[0], p[1], p[2]), phase: (p[0] * 13.7 + p[2] * 57.3) % 6.28 }));
+      syncPool(this.pickups[kind].items, (snap.pk && snap.pk[kind]) || [], true);
     }
 
     if (snap.lu) {
