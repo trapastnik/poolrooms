@@ -786,12 +786,21 @@ const ANNIHILATE_DIST = 2.6;
 // Свести его с подводным всё ещё можно — они сходятся на урезе воды.
 const WADE_MAX = 1.1;
 
+// На столько миллисекунд отстаём от последнего снимка сервера, чтобы движение
+// общих монстров было плавным, — как и для чужих игроков в net.js.
+const NET_INTERP_MS = 120;
+
 export class Monsters {
   constructor(engine) {
     this.engine = engine;
     this.enabled = true;
     this.difficulty = 'normal';
     this.list = [];
+    // В сетевой игре монстрами владеет сервер: свой ИИ мы не считаем, а рисуем
+    // присланные снимки. server: id монстра → его меш и цель интерполяции.
+    this.netDriven = false;
+    this.server = new Map();
+    this._lastSnap = 0;
     this.group = null;
     this.spits = null;
     this.lure = null;
@@ -819,7 +828,6 @@ export class Monsters {
       snake: new PickupPool(this.group, 'snake')
     };
     this.artifact = new Artifact(this.group);
-    this.artifact.place(e.grid, level, level.spawn.x, level.spawn.z, 24);
     this.kills = 0;
     this.charges = 0;
     this.lureCooldown = 0;
@@ -832,6 +840,11 @@ export class Monsters {
     this._plantTarget = 0;
     this._plantTimer = cfg.plantRegrow;
 
+    // В сетевой игре монстров, артефакт, приманку и растения раздаёт сервер —
+    // локально ничего не спавним, только рисуем его снимки в update.
+    if (this.netDriven) { e.scene.add(this.group); if (e.water) e.water.idleRefresh = 3; return; }
+
+    this.artifact.place(e.grid, level, level.spawn.x, level.spawn.z, 24);
     for (let n = 0; n < cfg.walkers; n++) this._spawnWalker(level.spawn.x, level.spawn.z, 18);
 
     // --- подводные, только если в уровне есть настоящая чаша ---
@@ -999,10 +1012,105 @@ export class Monsters {
     if (this.list.some(c => c.dead)) this.list = this.list.filter(c => !c.dead);
   }
 
+  /** Меш серверного монстра — та же визуалка, что у локального, но без ИИ. */
+  _makeServerMesh(kind) {
+    const mat = kind === 'stalker'
+      ? animatedMaterial(
+        { color: 0x1b2b2e, roughness: 0.55, metalness: 0.0, emissive: 0x040c0e, emissiveIntensity: 1.0 },
+        'z', 'transformed.x += sin(uTime * 3.1 + s * 2.4) * 0.16 * uWave * (s * 0.5 + 0.6);')
+      : animatedMaterial(
+        { color: 0xb9c6c4, roughness: 0.86, metalness: 0.0, emissive: 0x0a1416, emissiveIntensity: 0.6 },
+        'y', 'transformed.x += sin(uTime * 1.6 + s * 1.1) * 0.035 * uWave * s;'
+        + ' transformed.z += cos(uTime * 1.3 + s * 0.9) * 0.025 * uWave * s;');
+    const mesh = new THREE.Mesh(kind === 'stalker' ? buildStalkerGeo() : buildWalkerGeo(), mat);
+    mesh.castShadow = false; mesh.receiveShadow = false;
+    mesh.layers.enable(REVEAL_MONSTER);
+    this.group.add(mesh);
+    return mesh;
+  }
+
+  _dropServerMesh(id, s) {
+    this.group.remove(s.mesh);
+    s.mesh.geometry.dispose();
+    s.mesh.material.dispose();
+    this.server.delete(id);
+  }
+
+  /**
+   * Снимок мира от сервера: монстры (по id, с запасом на плавную интерполяцию),
+   * снаряды, приманка, артефакт. Позиции сюда только записываем — двигаем меши
+   * в update, с тем же отставанием, что и чужих игроков.
+   */
+  applyWorld(snap) {
+    if (!this.group || !this.netDriven) return;
+    const now = performance.now();
+    this._lastSnap = now;
+
+    const seen = new Set();
+    for (const m of snap.m || []) {
+      seen.add(m.id);
+      const kind = m.k === 1 ? 'stalker' : 'walker';
+      let s = this.server.get(m.id);
+      const to = { x: m.p[0], y: m.p[1], z: m.p[2], yaw: m.y };
+      if (!s) {
+        const mesh = this._makeServerMesh(kind);
+        mesh.position.set(to.x, to.y, to.z);      // сразу на место, без вспышки в (0,0,0)
+        mesh.rotation.y = to.yaw;
+        s = { mesh, kind, from: to, to, at: now, prevAt: now, hunt: m.s };
+        this.server.set(m.id, s);
+      } else {
+        s.from = s.to; s.to = to; s.prevAt = s.at; s.at = now; s.hunt = m.s;
+      }
+    }
+    for (const [id, s] of this.server) if (!seen.has(id)) this._dropServerMesh(id, s);
+
+    // снаряды: держим только позиции, физику считает сервер
+    this.spits.items = (snap.sp || []).map(p => ({ p: new THREE.Vector3(p[0], p[1], p[2]) }));
+    this.spits._sync();
+
+    if (snap.lu) {
+      this.lure.active = true; this.lure.pos.set(snap.lu[0], snap.lu[1], snap.lu[2]);
+      this.lure.mesh.visible = true; this.lure.mesh.position.copy(this.lure.pos);
+    } else { this.lure.active = false; this.lure.mesh.visible = false; }
+
+    if (snap.ar) {
+      this.artifact.active = true; this.artifact.pos.set(snap.ar[0], snap.ar[1], snap.ar[2]);
+      this.artifact.mesh.visible = true;
+    } else { this.artifact.active = false; this.artifact.mesh.visible = false; }
+  }
+
   update(dt, player) {
     if (!this.enabled || !this.group) return;
     const e = this.engine, t = e.time;
     const waterY = e.water ? e.water.waterY : -1e9;
+
+    // Ведомый режим: ИИ не считаем, двигаем серверные меши к их снимкам.
+    if (this.netDriven) {
+      this.lureCooldown = Math.max(0, this.lureCooldown - dt);   // свой кулдаун броска
+      const now = performance.now() - NET_INTERP_MS;
+      for (const s of this.server.values()) {
+        const span = Math.max(1, s.at - s.prevAt);
+        const k = THREE.MathUtils.clamp((now - s.prevAt) / span, 0, 1);
+        s.mesh.position.set(
+          s.from.x + (s.to.x - s.from.x) * k,
+          s.from.y + (s.to.y - s.from.y) * k,
+          s.from.z + (s.to.z - s.from.z) * k);
+        let d = s.to.yaw - s.from.yaw;
+        while (d > Math.PI) d -= Math.PI * 2;
+        while (d < -Math.PI) d += Math.PI * 2;
+        s.mesh.rotation.y = s.from.yaw + d * k;
+        const u = s.mesh.material.userData.uniforms;
+        u.uTime.value = t;
+        u.uWave.value = (s.kind === 'walker' && s.hunt) ? 0.15 : 1;   // замерший ходок
+      }
+      if (this.artifact.active) {
+        this.artifact.mesh.rotation.y = t * 0.8;
+        this.artifact.mesh.position.set(this.artifact.pos.x, this.artifact.pos.y + Math.sin(t * 1.4) * 0.12, this.artifact.pos.z);
+        this.artifact.mat.emissiveIntensity = 5 + Math.sin(t * 3.1) * 2;
+      }
+      if (this.lure.active) this.lure.mat.emissiveIntensity = 1.4 + Math.sin(this._lastSnap * 0.009) * 0.9;
+      return;
+    }
 
     this.lureCooldown = Math.max(0, this.lureCooldown - dt);
     this.lure.update(dt, e.grid, waterY);
@@ -1061,5 +1169,6 @@ export class Monsters {
     });
     this.group = null; this.spits = null; this.lure = null; this.pickups = null; this.artifact = null;
     this.list.length = 0;
+    this.server.clear();
   }
 }

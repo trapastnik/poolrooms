@@ -10,7 +10,7 @@ import { playerName, playerPin, setPlayerName, setPlayerPin, pinValid,
          submit, fetchTable, renderTable, clearLocalTable,
          clearServerTable, hasAdminToken, ping, fetchStats, statsPin,
          fetchPlayers, authenticate } from './scores.js';
-import { demoLevel, demoLevelDeep, deserializeLevel } from '../core/level.js';
+import { demoLevel, demoLevelDeep, deserializeLevel, serializeLevel } from '../core/level.js';
 import { QUALITY_PRESETS } from '../core/quality.js';
 import { ENV_PRESETS } from '../core/env.js';
 
@@ -113,6 +113,18 @@ async function boot() {
   applyDifficulty();
   state.gyro = new Gyro();
   state.net = new Net(engine);
+  // Общие монстры: снимок мира рисуем через Monsters, адресные события от
+  // сервера применяем к своему игроку. Урон/воздух/толчок/артефакт — только нам.
+  state.net.events.world = (snap) => state.monsters.applyWorld(snap);
+  state.net.events.hurt = (dmg) => state.player.hurt(dmg);
+  state.net.events.oxy = (d) => { state.player.oxygen = Math.max(0, Math.min(1, state.player.oxygen + d)); };
+  state.net.events.knock = (v) => { state.player.vel.x += v[0]; state.player.vel.y += v[1]; state.player.vel.z += v[2]; };
+  state.net.events.artifactPick = () => {
+    state.monsters.charges++; state.runArtifacts++; state.audio.surface();
+    flashHint(`артефакт найден · зарядов ${state.monsters.charges}`);
+  };
+  state.net.events.growl = (p) => state.audio.growl(p);
+  state.net.events.annihilate = () => state.audio.splash(2.5);
   state.touch = new TouchControls(state);
   state.onPause = () => pauseGame();
   state.onThrow = () => throwLure();
@@ -154,8 +166,12 @@ async function loadLevel(level) {
   await new Promise(r => setTimeout(r, 16));
   e.loadLevel(level);
   state.player.spawnFrom(level);
+  // Сеть могла быть ещё не подключена (первый уровень грузится до меню),
+  // поэтому смотрим на сохранённый выбор, а не на текущее состояние сокета.
+  const wantNet = localStorage.getItem(LS_NET) === '1';
+  state.monsters.netDriven = wantNet;
   state.monsters.build(level);
-  if (state.net?.enabled) state.net.connect(level.name, playerName() || 'без имени');
+  if (wantNet) netConnect(level);
   $('levelName').textContent = level.name;
   // прогрев шейдеров, чтобы не было фризов на первых кадрах
   $('loadingText').textContent = 'Компиляция шейдеров…';
@@ -236,10 +252,12 @@ function buildMenu() {
   net.checked = localStorage.getItem(LS_NET) === '1';
   const netApply = () => {
     localStorage.setItem(LS_NET, net.checked ? '1' : '0');
-    if (net.checked) {
-      // комната — это уровень: в разных уровнях друг друга не видно
-      state.net.connect(state.engine.level?.name || 'общий', playerName() || 'без имени');
-    } else state.net.disconnect();
+    // Переключение режима меняет владельца монстров, поэтому пересобираем их:
+    // включили — ведомые сервером, выключили — снова свой ИИ.
+    state.monsters.netDriven = net.checked;
+    if (state.engine.level) state.monsters.build(state.engine.level);
+    if (net.checked) netConnect();               // комната — это уровень
+    else state.net.disconnect();
   };
   net.addEventListener('change', netApply);
   state.net.events.full = (max, why) => {
@@ -247,7 +265,8 @@ function buildMenu() {
     flashHint(why === 'off' ? 'сетевая игра выключена на сервере'
       : why === 'noroom' ? 'все комнаты заняты' : `мест нет, максимум ${max}`);
   };
-  if (net.checked) netApply();
+  // Стартовое подключение делает loadLevel (когда уровень уже готов), иначе
+  // сокет открылся бы раньше уровня и сервер не получил бы карту для монстров.
   setInterval(() => {
     const el = $('netState');
     if (el) el.textContent = state.net.enabled
@@ -859,8 +878,32 @@ async function recordRun() {
   renderTable($('scoreTable'), res.rows, { online: res.online });
 }
 
+/**
+ * Подключение к комнате под общих монстров. Уровень кладём на net ДО connect —
+ * тогда его гарантированно отправит обработчик welcome, без гонки со стартом.
+ */
+function netConnect(level) {
+  const lv = level || state.engine.level;
+  state.net.levelJson = lv ? serializeLevel(lv) : null;
+  state.net.diff = state.monsters.difficulty;
+  state.net.connect(lv?.name || 'общий', playerName() || 'без имени');
+}
+
 function throwLure() {
   if (!state.running || state.player.dead) return;
+  // В сети приманкой владеет сервер: шлём точку глаз и направление взгляда,
+  // а кулдаун ведём у себя, чтобы не спамить. Направление — как getWorldDirection
+  // для порядка вращений YXZ (yaw по Y, pitch по X).
+  if (state.net?.enabled && state.monsters.netDriven) {
+    if (state.monsters.lureCooldown > 0) return;
+    const p = state.player, cp = Math.cos(p.pitch);
+    const eye = { x: p.pos.x, y: p.pos.y + p.eye, z: p.pos.z };
+    const dir = { x: -cp * Math.sin(p.yaw), y: Math.sin(p.pitch), z: -cp * Math.cos(p.yaw) };
+    state.net.sendLure(eye, dir);
+    state.monsters.lureCooldown = state.monsters.cfg.lureCooldown;
+    state.audio.drip();
+    return;
+  }
   if (state.monsters.throwLure()) state.audio.drip();
 }
 

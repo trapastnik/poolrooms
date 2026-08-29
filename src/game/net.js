@@ -112,7 +112,14 @@ export class Net {
     this.geo = null;
     this._sendAcc = 0;
     this._retryAt = 0;
-    this.events = { joined: null, left: null, full: null, lobby: null };
+    this.levelJson = null;           // уровень для сервера (общие монстры)
+    this.diff = 'normal';
+    this.events = {
+      joined: null, left: null, full: null, lobby: null,
+      // общие монстры: снимок мира и адресные события от сервера
+      world: null, hurt: null, oxy: null, knock: null, artifactPick: null,
+      growl: null, annihilate: null
+    };
   }
 
   /** Ведём ли мы: только ведущий может начать игру. */
@@ -137,6 +144,15 @@ export class Net {
     this._open();
   }
 
+  /** Бросок приманки в сети: сервер владеет ею, шлём точку и направление. */
+  sendLure(eyePos, dir) {
+    if (this.ws && this.ws.readyState === 1) {
+      this.ws.send(JSON.stringify({
+        t: 'lure', p: [eyePos.x, eyePos.y, eyePos.z], d: [dir.x, dir.y, dir.z]
+      }));
+    }
+  }
+
   _open() {
     if (this.ws && (this.ws.readyState === 0 || this.ws.readyState === 1)) return;
     this.status = 'подключаюсь';
@@ -159,6 +175,8 @@ export class Net {
         this.status = 'в сети';
         if (!this.group.parent) this.engine.scene.add(this.group);
         (m.players || []).forEach(p => this._upsert(p));
+        // отдаём серверу уровень — с него он строит общих монстров
+        if (this.levelJson) ws.send(JSON.stringify({ t: 'level', level: this.levelJson, diff: this.diff }));
         this.events.joined?.();
       } else if (m.t === 'w') {
         const seen = new Set();
@@ -190,6 +208,20 @@ export class Net {
         this.status = `мест нет (максимум ${m.max})`;
         this.enabled = false;
         this.events.full?.(m.max);
+      } else if (m.t === 'world') {
+        this.events.world?.(m);                 // снимок общих монстров
+      } else if (m.t === 'hurt') {
+        this.events.hurt?.(m.dmg);
+      } else if (m.t === 'oxy') {
+        this.events.oxy?.(m.d);
+      } else if (m.t === 'knock') {
+        this.events.knock?.(m.v);
+      } else if (m.t === 'artifact') {
+        this.events.artifactPick?.();
+      } else if (m.t === 'growl') {
+        this.events.growl?.(m.p);
+      } else if (m.t === 'annihilate') {
+        this.events.annihilate?.(m.p);
       }
     };
     ws.onclose = () => {
