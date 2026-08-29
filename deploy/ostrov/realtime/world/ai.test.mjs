@@ -124,8 +124,10 @@ for (const [name, mk] of [['demoLevel', CLIENT.demoLevel], ['demoLevelDeep', CLI
   world.list = world.list.filter(c => !c.dead);
   if (world.list.length !== 0) fail('респавн: не удалось обнулить список');
   const view = { pos: { x: lv.spawn.x, y: lv.waterY, z: lv.spawn.z }, eye: EYE, yaw: 0, vel: { x: 0, y: 0, z: 0 }, mode: 'swim' };
-  // респавн возвращает по одному раз в respawn секунд — даём время на всех
-  const secs = world.cfg.respawn * (want + 2);
+  // респавн возвращает по одному раз в respawn секунд, а размещение ходока
+  // (в стороне от игрока) иногда промахивается и тратит цикл — берём щедрый
+  // запас времени, чтобы тест не зависел от случайных промахов.
+  const secs = world.cfg.respawn * want * 4;
   for (let step = 0; step < 15 * secs; step++) world.step(1 / 15, [view]);
   if (world.list.length < want) fail(`респавн: восстановилось ${world.list.length} из ${want}`);
   else console.log(`[респавн] после гибели всех поголовье вернулось к ${world.list.length} (было ${want}) ✓`);

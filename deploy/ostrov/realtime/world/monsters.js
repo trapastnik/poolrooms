@@ -462,6 +462,8 @@ class World {
     this.lureCooldown = 0;
     this._respawn = this.cfg.respawn;
     this._growlCool = 0;
+    this._nextId = 1;                 // стабильный id монстра — чтобы клиент
+                                      // сопоставлял снимки и плавно двигал меши
 
     this.deep = collectDeepCells(level, this.grid, this.waterY);
     if (this.deep.length < 4) this.deep = null;
@@ -474,12 +476,14 @@ class World {
   _spawnWalker(awayX, awayZ, minDist) {
     const wk = new Walker(this.grid, this.level, this.waterY, this.cfg);
     if (!wk.placeAwayFrom(awayX, awayZ, minDist)) return null;
+    wk.id = this._nextId++;
     this.list.push(wk);
     return wk;
   }
   _spawnStalker() {
     if (!this.deep) return null;
     const st = new Stalker(this.grid, this.deep, this.waterY, this.cfg);
+    st.id = this._nextId++;
     this.list.push(st);
     return st;
   }
@@ -600,6 +604,7 @@ class World {
   snapshot() {
     return {
       m: this.list.map(c => ({
+        id: c.id,
         k: c.kind === 'stalker' ? 1 : 0,
         p: [r2(c.pos.x), r2(c.pos.y), r2(c.pos.z)],
         y: r2(c.yaw),
